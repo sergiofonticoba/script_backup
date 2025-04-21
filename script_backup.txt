@@ -1,0 +1,59 @@
+#!/bin/sh
+
+#Sergio Fonticoba Sueiras
+#Andrés Iglesias Bárbara
+
+BACKUP_DIR=/var/backups 
+COMPRESOR=/bin/bzip2
+DIASEMBACKUP="We"
+SEMANAL=".backupWEEK"
+DIARIO=".backupDAY"
+MINUID=`cat /etc/passwd | grep ^usuario | cut -d: -f3`
+programa=bzip2
+
+if [ ! -d "$BACKUP_DIR" ]; then
+        mkdir -p "$BACKUP_DIR"
+fi
+
+if ! which "$programa" > /dev/null 2>&1; then
+    echo "$programa no está instalado."
+    exit 1
+fi
+
+while IFS= read -r linea; do
+
+        UI=$(echo "$linea" | cut -d: -f3)
+
+        if [ "$UI" -gt "$MINUID" ]; then
+
+		USER=$(echo "$linea" | cut -d: -f1)
+                HOME=$(echo "$linea" | cut -d: -f6)
+                FECHA=$(date +"%d-%m-%Y")
+                DIA=$(date +"%A" | cut -c1-2)
+                GROUP=$(echo "$linea" | cut -d: -f3)
+
+                if [ -f "$HOME/$DIARIO" ] ||( [ -f "$HOME/$SEMANAL" ] && [ "$DIA" = "$DIASEMBACKUP" ] ); then
+                        
+			BACKUP_FILE="$BACKUP_DIR/${FECHA}_${USER}.tar.bz2"
+
+                        if [ -f "$BACKUP_FILE" ]; then 
+			       	logger -p user.warning "Error al realizar la copia de seguridad para el usuario $USER: El backup del usuario ya ha sido realizado hoy"
+                               	continue
+                        fi 
+ 			TAMOC=$(du -sk $HOME | awk '{print $1}')
+                        TAMFREE=$(df -k "$BACKUP_DIR" | awk 'NR==2 {print $4}')
+
+                        if [ "$TAMFREE" -ge "$TAMOC" ]; then
+                               	if tar -cjf "$BACKUP_FILE" -C "$(dirname "$HOME")" "$(basename "$HOME")"; then
+			       		chown root:"$GROUP" "$BACKUP_FILE"
+                                        chmod 640 "$BACKUP_FILE"
+                                        logger -p user.notice "Copia de seguridad realizada con éxito para el usuario $USER"
+                               	else
+                                        logger -p user.warning "Error al realizar la copia de seguridad para el usuario $USER: Error al comprimir la carpeta del usuario"
+                               	fi
+                        else
+                        	logger -p user.warning "Error al realizar la copia de seguridad para el usuario $USER: Espacio insuficiente carpeta de backups"
+                fi
+        fi
+fi
+done < /etc/passwd
